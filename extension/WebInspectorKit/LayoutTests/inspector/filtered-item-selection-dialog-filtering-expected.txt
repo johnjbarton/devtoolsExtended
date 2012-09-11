@@ -1,4 +1,4 @@
-Check to see that FilteredItemSelectionDialog uses proper regex to filter results.
+Check to see that FilteredItemSelectionDialog uses proper regex to filter results, selects the best match, and highlights the match.
 
 {
     input : [
@@ -72,4 +72,6 @@ Check to see that FilteredItemSelectionDialog uses proper regex to filter result
     query : "^[]{}()\.$*+?|"
     title : "Dangerous input escaping"
 }
+Query for "String" gives String.js
+Highlight font-weight bold
 
