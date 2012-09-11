@@ -32,6 +32,54 @@ function test()
     checkQuery("Spaces in query", "d v ", ["div .visible", "div.visible "]);
     checkQuery("Duplicate symbols in query", "aab", ["abab", "abaa", "caab", "baac"]);
     checkQuery("Dangerous input escaping", "^[]{}()\\.$*+?|", ["^[]{}()\\.$*+?|", "0123456789abcdef"]);
+
+    var mockDelegate = 
+    {
+        testStrings: [
+            "AStringClass.js",
+            "String.js",
+            "NotMatched.js",
+            "ZStringClass.js"
+        ],
+        itemTitleAt: function(i) {
+            return this.testStrings[i];
+        },
+        itemSubtitleAt: function(i) {
+            return "";
+        },
+        itemSuffixAt: function(itemIndex)
+        {
+            return "";
+        },
+        itemKeyAt: function(i) {
+            return this.testStrings[i];
+        },
+        requestItems: function(itemsLoaded) {
+            itemsLoaded(0, this.testStrings.length, 1,1);
+        },
+        rewriteQuery: function(query)
+        {
+            return query;
+        },
+        itemsCount: function() 
+        {
+            return this.testStrings.length;
+        }
+    };
+
+    var dialog = new WebInspector.FilteredItemSelectionDialog(mockDelegate); 
+    
+    dialog._promptElement.value = "String";
+    dialog._filterItems();
+    var selected = dialog._selectedElement;
+    InspectorTest.addResult("Query for \"String\" gives " + selected.textContent);
+
+    WebInspector.Dialog.show(document.body, dialog);
+    var highlight = selected.querySelector(".highlight");
+    var style = window.getComputedStyle(highlight);
+    InspectorTest.addResult("Highlight font-weight "+style.getPropertyValue('font-weight'));
+    WebInspector.Dialog.hide();
+
     InspectorTest.completeTest();
 }
 
@@ -40,7 +88,7 @@ function test()
 
 <body onload="runTest()">
 <p> 
-Check to see that FilteredItemSelectionDialog uses proper regex to filter results.
+Check to see that FilteredItemSelectionDialog uses proper regex to filter results, selects the best match, and highlights the match.
 </p>
 
 </body>

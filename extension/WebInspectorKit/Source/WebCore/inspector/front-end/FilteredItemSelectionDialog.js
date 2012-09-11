@@ -220,28 +220,40 @@ WebInspector.FilteredItemSelectionDialog.prototype = {
         query = query.trim();
         var regex = this._createSearchRegExp(query);
 
-        var firstElement;
         for (var i = 0; i < this._itemElements.length; ++i) {
             var itemElement = this._itemElements[i];
             itemElement._titleSuffixElement.textContent = this._delegate.itemSuffixAt(i);
+            delete itemElement.shortestMatch;
             if (regex.test(this._delegate.itemKeyAt(i))) {
                 this._showItemElement(itemElement);
-                if (!firstElement)
-                    firstElement = itemElement;
             } else
                 this._hideItemElement(itemElement);
         }
 
-        if (!this._selectedElement || !this._itemElementVisible(this._selectedElement))
-            this._updateSelection(firstElement);
-
         if (query) {
             this._highlightItems(query);
             this._query = query;
+
+            if (!this._selectedElement || !this._itemElementVisible(this._selectedElement))
+                this._selectShortestMatch();
         } else {
             this._clearHighlight();
             delete this._query;
         }
+    },
+
+    _selectShortestMatch: function() 
+    {
+        var shortestMatchElement = this._itemElements[0];
+        this._itemElements.forEach(function(itemElement) 
+        {
+            if (itemElement.shortestMatch && itemElement.shortestMatch <= shortestMatchElement.shortestMatch) {  // regex match is as short
+                if (itemElement.textContent.length < shortestMatchElement.textContent.length) { // and it's the shortest item that matches
+                    shortestMatchElement = itemElement;
+                }
+            }
+        });
+        this._updateSelection(shortestMatchElement);
     },
 
     _onKeyDown: function(event)
@@ -402,6 +414,20 @@ WebInspector.FilteredItemSelectionDialog.prototype = {
 
         if (changes.length)
             this._elementHighlightChanges.put(itemElement, changes);
+
+        this._setShortestMatch(itemElement, ranges);
+    },
+
+    _setShortestMatch: function(itemElement, ranges) 
+    {
+        var shortestMatch = Infinity;
+        ranges.forEach(function (range) 
+        {
+            if (range.length < shortestMatch) 
+                shortestMatch = range.length;
+        });
+
+        itemElement.shortestMatch = shortestMatch;  // cleared in _filterItems()
     },
 
     /**
