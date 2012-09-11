@@ -1,0 +1,460 @@
+Subversion Revision: 128193
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index 0a8035fefd961eb74f9a9d5ef5ea1e3a7c2dc727..c3e3fad612ba435a46b673e69a53cbed2b435fa4 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,3 +1,47 @@
++2012-09-06  John J. Barton  <johnjbarton@chromium.org>
++
++        Web Inspector: Allow extensions to open FilteredItemSelectorDialog
++        https://bugs.webkit.org/show_bug.cgi?id=96040
++
++        Reviewed by NOBODY (OOPS!).
++
++        Extend the ExtensionPanel to add createItemSelector.
++        
++        Test added to extensions-panel.html
++
++        * inspector/front-end/ExtensionAPI.js:
++        (defineCommonExtensionSymbols):
++        (injectedExtensionAPI.ItemSelectorImpl):
++        (injectedExtensionAPI.ItemSelectorImpl.prototype.addItems):
++           API for the extension to post items to the dialog
++        (injectedExtensionAPI.ExtensionPanelImpl.prototype.createItemSelector):
++           API panel.createItemSelector() is how extensions open the dialog
++        (injectedExtensionAPI.ExtensionPanelImpl.prototype.show):
++        * inspector/front-end/ExtensionServer.js:
++        (WebInspector.ExtensionServer):
++        (WebInspector.ExtensionServer.prototype.notifyItemSelected):
++           When the user selects, we post to the extension.
++        (WebInspector.ExtensionServer.prototype._onAddSelectorItems):
++           The extension can post items (objects with fields title, subtitle, ket, suffix).
++           The extension can post multiple times, any time after the dialog is created.
++        (WebInspector.ExtensionServer.prototype._onCreateItemSelector.itemsProxy.requestItems):
++        The itemsProxy forwards items posted from the extension to the dialog, and vice versa
++        (WebInspector.ExtensionServer.prototype._onCreateItemSelector.itemsProxy.addItems):
++        (WebInspector.ExtensionServer.prototype._onCreateItemSelector.itemsProxy.selectItem):
++        (WebInspector.ExtensionServer.prototype._onCreateItemSelector.filteredItemSelectionDialog.willHide):
++           To signal the extension that the dialog is closing, we send an undefined item. 
++        (WebInspector.ExtensionServer.prototype._onCreateItemSelector):
++        * inspector/front-end/FilteredItemSelectionDialog.js:
++        (WebInspector.ExtensionSelectionContentProvider):
++           This new class holds the items sent from the extension.
++        (WebInspector.ExtensionSelectionContentProvider.prototype.itemTitleAt):
++        (WebInspector.ExtensionSelectionContentProvider.prototype.itemSuffixAt):
++        (WebInspector.ExtensionSelectionContentProvider.prototype.itemSubtitleAt):
++        (WebInspector.ExtensionSelectionContentProvider.prototype.itemKeyAt):
++        (WebInspector.ExtensionSelectionContentProvider.prototype.itemsCount):
++        (WebInspector.ExtensionSelectionContentProvider.prototype.selectItem):
++        (WebInspector.ExtensionSelectionContentProvider.prototype.rewriteQuery):
++
+ 2012-09-11  Sheriff Bot  <webkit.review.bot@gmail.com>
+ 
+         Unreviewed, rolling out r128175.
+diff --git a/Source/WebCore/inspector/front-end/ExtensionAPI.js b/Source/WebCore/inspector/front-end/ExtensionAPI.js
+index 4c97f6d2eda863f9c5f76c412d7a15aa95ef171b..a8b714874d479d42464fb8fa77d52399694db410 100644
+--- a/Source/WebCore/inspector/front-end/ExtensionAPI.js
++++ b/Source/WebCore/inspector/front-end/ExtensionAPI.js
+@@ -60,6 +60,7 @@ function defineCommonExtensionSymbols(apiPrivate)
+     apiPrivate.Events = {
+         AuditStarted: "audit-started-",
+         ButtonClicked: "button-clicked-",
++        ItemSelected: "item-selected-",
+         ConsoleMessageAdded: "console-message-added",
+         ElementsPanelObjectSelected: "panel-objectSelected-elements",
+         NetworkRequestFinished: "network-request-finished",
+@@ -79,9 +80,11 @@ function defineCommonExtensionSymbols(apiPrivate)
+         AddAuditResult: "addAuditResult",
+         AddConsoleMessage: "addConsoleMessage",
+         AddRequestHeaders: "addRequestHeaders",
++        AddSelectorItems: "addSelectorItems",
+         CreatePanel: "createPanel",
+         CreateSidebarPane: "createSidebarPane",
+         CreateStatusBarButton: "createStatusBarButton",
++        CreateItemSelector: "createItemSelector",
+         EvaluateOnInspectedPage: "evaluateOnInspectedPage",
+         GetConsoleMessages: "getConsoleMessages",
+         GetHAR: "getHAR",
+@@ -395,6 +398,28 @@ function ElementsPanel()
+ 
+ /**
+  * @constructor
++ */
++function ItemSelectorImpl(id) 
++{
++    this._id = id;
++    this.onSelectedItem = new EventSink(events.ItemSelected + id);
++}
++
++ItemSelectorImpl.prototype =
++{
++    addItems: function(items)
++    {
++        var request = {
++            command: commands.AddSelectorItems,
++            itemSelectorId: this._id,
++            items: items
++        };
++        extensionServer.sendRequest(request);
++    }
++}
++
++/**
++ * @constructor
+  * @extends {ExtensionViewImpl}
+  */
+ function ExtensionPanelImpl(id)
+@@ -404,6 +429,19 @@ function ExtensionPanelImpl(id)
+ }
+ 
+ ExtensionPanelImpl.prototype = {
++    createItemSelector: function(title) 
++    {
++        var id = "itemSelector-" + extensionServer.nextObjectId();
++        var request = {
++            command: commands.CreateItemSelector,
++            panel: this._id,
++            id: id,
++            title: title
++        };
++        extensionServer.sendRequest(request);
++        return new ItemSelectorImpl(id);
++    },
++
+     createStatusBarButton: function(iconPath, tooltipText, disabled)
+     {
+         var id = "button-" + extensionServer.nextObjectId();
+diff --git a/Source/WebCore/inspector/front-end/ExtensionServer.js b/Source/WebCore/inspector/front-end/ExtensionServer.js
+index ec3811b69129c826b87a624def733cd270bcab87..444208851e4f9cc30968ad6c2c4bac246f344a99 100644
+--- a/Source/WebCore/inspector/front-end/ExtensionServer.js
++++ b/Source/WebCore/inspector/front-end/ExtensionServer.js
+@@ -28,6 +28,9 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++importScript("Dialog.js");
++importScript("FilteredItemSelectionDialog.js");
++
+ /**
+  * @constructor
+  */
+@@ -50,9 +53,11 @@ WebInspector.ExtensionServer = function()
+     this._registerHandler(commands.AddAuditResult, this._onAddAuditResult.bind(this));
+     this._registerHandler(commands.AddConsoleMessage, this._onAddConsoleMessage.bind(this));
+     this._registerHandler(commands.AddRequestHeaders, this._onAddRequestHeaders.bind(this));
++    this._registerHandler(commands.AddSelectorItems, this._onAddSelectorItems.bind(this));
+     this._registerHandler(commands.CreatePanel, this._onCreatePanel.bind(this));
+     this._registerHandler(commands.CreateSidebarPane, this._onCreateSidebarPane.bind(this));
+     this._registerHandler(commands.CreateStatusBarButton, this._onCreateStatusBarButton.bind(this));
++    this._registerHandler(commands.CreateItemSelector, this._onCreateItemSelector.bind(this));
+     this._registerHandler(commands.EvaluateOnInspectedPage, this._onEvaluateOnInspectedPage.bind(this));
+     this._registerHandler(commands.GetHAR, this._onGetHAR.bind(this));
+     this._registerHandler(commands.GetConsoleMessages, this._onGetConsoleMessages.bind(this));
+@@ -101,6 +106,11 @@ WebInspector.ExtensionServer.prototype = {
+         this._postNotification(WebInspector.extensionAPI.Events.ButtonClicked + identifier);
+     },
+ 
++    notifyItemSelected: function(identifier, item, promptValue) 
++    {
++        this._postNotification(WebInspector.extensionAPI.Events.ItemSelected + identifier, item, promptValue);
++    },
++
+     _inspectedURLChanged: function(event)
+     {
+         this._requests = {};
+@@ -188,6 +198,24 @@ WebInspector.ExtensionServer.prototype = {
+         NetworkAgent.setExtraHTTPHeaders(allHeaders);
+     },
+ 
++    _onAddSelectorItems: function(message) 
++    {
++        var id = message.itemSelectorId;
++        if (typeof id !== "string")
++            return this._status.E_BADARGTYPE("itemSelectorId", typeof id, "string");
++
++        if (!WebInspector.Dialog.currentInstance())
++            return; // fail silently, the dialog could exit asynchronously
++
++        var itemsProxy = this._clientObjects[id];
++        if (!itemsProxy)
++            return this._status.E_NOTFOUND(message.itemSelectorId);
++
++        var items = message.items; 
++        itemsProxy.addItems(items);
++        return this._status.OK();
++    },
++
+     _onCreatePanel: function(message, port)
+     {
+         var id = message.id;
+@@ -210,6 +238,53 @@ WebInspector.ExtensionServer.prototype = {
+         WebInspector.showPanel(message.id);
+     },
+ 
++    _onCreateItemSelector: function(message, port)
++    {
++        var panel = this._clientObjects[message.panel];
++        if (!panel || !(panel instanceof WebInspector.ExtensionPanel))
++            return this._status.E_NOTFOUND(message.panel);
++            
++        var id = message.id;
++
++        if (id in this._clientObjects || id in WebInspector.panels)
++            return this._status.E_EXISTS(id);
++
++        if (WebInspector.Dialog.currentInstance())
++            WebInspector.Dialog.hide();
++
++        var extensionServer = this;
++        var itemsProxy = {
++            requestItems: function(callback)
++            {
++                this.callback = callback;
++                if (this._items) {
++                    this.addItems(this._items);
++                    delete this._items;
++                }
++            },
++            addItems: function(items)
++            {
++                if (this.callback)
++                    this.callback(items);
++                else 
++                    this._items = (this._items || []), this._items.concat(items);
++            },
++            selectItem: function(item, promptValue) 
++            {
++                extensionServer.notifyItemSelected(id, item, promptValue);
++            }
++        };
++        this._clientObjects[id] = itemsProxy;
++        var delegate = new WebInspector.ExtensionSelectionContentProvider(panel, itemsProxy);
++        var filteredItemSelectionDialog = new WebInspector.FilteredItemSelectionDialog(delegate);
++        filteredItemSelectionDialog.willHide = function()
++        {
++            extensionServer.notifyItemSelected(id);
++        }
++        WebInspector.Dialog.show(panel.element, filteredItemSelectionDialog);
++        return this._status.OK();
++    },
++
+     _onCreateStatusBarButton: function(message, port)
+     {
+         var panel = this._clientObjects[message.panel];
+diff --git a/Source/WebCore/inspector/front-end/FilteredItemSelectionDialog.js b/Source/WebCore/inspector/front-end/FilteredItemSelectionDialog.js
+index e086dadafdfe837058520f6889735c4250bedff0..f270ebb6063d266d2468dcf0f1924bac3dadff7d 100644
+--- a/Source/WebCore/inspector/front-end/FilteredItemSelectionDialog.js
++++ b/Source/WebCore/inspector/front-end/FilteredItemSelectionDialog.js
+@@ -731,3 +731,107 @@ WebInspector.OpenResourceDialog.show = function(panel, uiSourceCodeProvider, rel
+     var filteredItemSelectionDialog = new WebInspector.FilteredItemSelectionDialog(new WebInspector.OpenResourceDialog(panel, uiSourceCodeProvider));
+     WebInspector.Dialog.show(relativeToElement, filteredItemSelectionDialog);
+ }
++
++
++/**
++ * @constructor
++ * @implements {WebInspector.SelectionDialogContentProvider}
++ * @param {WebInspector.Panel} panel
++ * @param {Object} itemsProvider
++ */
++
++WebInspector.ExtensionSelectionContentProvider = function(panel, itemsProvider) 
++{
++    WebInspector.SelectionDialogContentProvider.call(this);
++    this._panel = panel;
++    this._itemsProvider = itemsProvider;
++    this._items = [];
++}
++
++WebInspector.ExtensionSelectionContentProvider.prototype = {
++    /**
++     * @param {number} itemIndex
++     * @return {string}
++     */
++    itemTitleAt: function(itemIndex)
++    {
++        return this._items[itemIndex].title;
++    },
++    
++    /*
++     * @param {number} itemIndex
++     * @return {string}
++     */
++    itemSuffixAt: function(itemIndex)
++    {
++        return this._items[itemIndex].suffix;
++    },
++
++    /*
++     * @param {number} itemIndex
++     * @return {string}
++     */
++    itemSubtitleAt: function(itemIndex)
++    {
++        return this._items[itemIndex].subtitle;
++    },
++
++    /**
++     * @param {number} itemIndex
++     * @return {string}
++     */
++    itemKeyAt: function(itemIndex)
++    {
++        return this._items[itemIndex].key;
++    },
++
++    /**
++     * @return {number}
++     */
++    itemsCount: function()
++    {
++        return this._items.length;
++    },
++
++    /**
++     * @param {function(number, number, number, number)} callback
++     */
++    requestItems: function(callback)
++    {
++        /**
++         * @param {Array.<Object>} items
++         * @param {number} chunkIndex_opt
++         * @param {number} totalChunks_opt
++         */
++        function itemsCallback(items, chunkIndex_opt, totalChunks_opt)
++        {
++            var index = this._items.length;
++            items.forEach(function(item)
++            {
++                this._items.push(item);
++            }.bind(this));
++            callback(index, items.length, chunkIndex_opt, totalChunks_opt)
++        }
++        this._itemsProvider.requestItems(itemsCallback.bind(this));
++    },
++
++    /**
++     * @param {number} itemIndex
++     * @param {string} promptValue
++     */
++    selectItem: function(itemIndex, promptValue)
++    {
++        this._itemsProvider.selectItem(this._items[itemIndex], promptValue);
++    },
++
++    /**
++     * @param {string} query
++     * @return {string}
++     */
++    rewriteQuery: function(query)
++    {
++        return query;
++    }
++};
++
++WebInspector.ExtensionSelectionContentProvider.prototype.__proto__ = WebInspector.SelectionDialogContentProvider.prototype;
+\ No newline at end of file
+diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
+index 70520907df214fe1eafdf49a0f0345434ed82426..fdddef7cee4ac081665a5c9d18451ba945c22c42 100644
+--- a/LayoutTests/ChangeLog
++++ b/LayoutTests/ChangeLog
+@@ -1,3 +1,15 @@
++2012-09-06  John J. Barton  <johnjbarton@chromium.org>
++
++        Web Inspector: Allow extensions to open FilteredItemSelectorDialog
++        https://bugs.webkit.org/show_bug.cgi?id=96040
++
++        Reviewed by NOBODY (OOPS!).
++
++        Add case extension_testItemSelector to test panel.createItemSelector()
++
++        * inspector/extensions/extensions-panel-expected.txt:
++        * inspector/extensions/extensions-panel.html:
++
+ 2012-09-11  Csaba Osztrogonác  <ossy@webkit.org>
+ 
+         [Qt][WK2] Unreviewed gardening, skip new failing tests to paint the bot green.
+diff --git a/LayoutTests/inspector/extensions/extensions-panel-expected.txt b/LayoutTests/inspector/extensions/extensions-panel-expected.txt
+index c0ef65db1c4f741efa1ae05bfb2a30701ec6e54c..0474e659c9d28db8e404bcae219cf1de96b71ec1 100644
+--- a/LayoutTests/inspector/extensions/extensions-panel-expected.txt
++++ b/LayoutTests/inspector/extensions/extensions-panel-expected.txt
+@@ -6,6 +6,7 @@ Running tests...
+ RUNNING TEST: extension_testCreatePanel
+ Panel created
+ {
++    createItemSelector : <function>
+     createStatusBarButton : <function>
+     onHidden : {
+         addListener : <function>
+@@ -23,6 +24,12 @@ Panel created
+ }
+ Panel shown
+ Extension panel size correct
++RUNNING TEST: extension_testItemSelector
++ItemSelector has  2 items
++selected {"key":"key2","title":"title2","suffix":"(2)","subtitle":"subtitle2"}
++prompt ti
++selected undefined
++prompt undefined
+ RUNNING TEST: extension_testSearch
+ Panel hidden
+ Panel searched:
+diff --git a/LayoutTests/inspector/extensions/extensions-panel.html b/LayoutTests/inspector/extensions/extensions-panel.html
+index b2240dc8f7b0e6d6a250f6f112b3d9b84805eaca..943214d628f0575ad0da42c2613e517e57a38fcd 100644
+--- a/LayoutTests/inspector/extensions/extensions-panel.html
++++ b/LayoutTests/inspector/extensions/extensions-panel.html
+@@ -51,6 +51,21 @@ function initialize_extensionsPanelTest()
+         click.initMouseEvent("click", true, true);
+         xpathResult.singleNodeValue.dispatchEvent(click);
+     }
++
++    InspectorTest.selectItem = function() 
++    {
++        if (!WebInspector.Dialog.currentInstance()) {
++            output("No Dialog.currentInstance");
++        } else {
++            var element = WebInspector.Dialog.currentInstance()._delegate.element;
++            element.querySelector("input").value = "ti";
++            var items = element.querySelectorAll(".item");
++            InspectorTest.addResult("ItemSelector has  " + items.length + " items");
++            var click = document.createEvent("MouseEvent");
++            click.initMouseEvent("click", true, true);
++            items[1].dispatchEvent(click);
++        }
++    }
+ }
+ 
+ function extension_testCreatePanel(nextTest)
+@@ -158,6 +173,32 @@ function extension_testStatusBarButtons(nextTest)
+     webInspector.panels.create("Buttons Panel", basePath + "extension-panel.png", basePath + "non-existent.html", onPanelCreated);
+ }
+ 
++function extension_testItemSelector(nextTest)
++{
++    console.log("begin testItemSelector");
++    function onPanelCreated(panel) 
++    {
++        var itemSelector = panel.createItemSelector("TestItemSelector");
++        function onSelectedFile(item, promptValue)
++        {
++            output("selected " + JSON.stringify(item));
++            output("prompt " + promptValue);
++            if (!item)  // signal that the dialog closed
++                nextTest();
++        }
++        itemSelector.onSelectedItem.addListener(onSelectedFile);
++        var testItems = [
++            {key: 'key1', title: 'title1', suffix: '(1)', subtitle: 'subtitle1'},
++            {key: 'key2', title: 'title2', suffix: '(2)', subtitle: 'subtitle2'},
++        ];
++        itemSelector.addItems(testItems);
++
++        evaluateOnFrontend("InspectorTest.selectItem();");
++    }
++
++    var basePath = location.pathname.replace(/\/[^/]*$/, "/");
++    webInspector.panels.create("Test Panel", basePath + "extension-panel.png", basePath + "non-existent.html", onPanelCreated);
++}
+ </script>
+ </head>
+ <body onload="runTest()">
