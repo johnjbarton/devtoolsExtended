@@ -1,0 +1,103 @@
+Subversion Revision: 127884
+diff --git a/Source/WebCore/ChangeLog b/Source/WebCore/ChangeLog
+index dbe31f56c519017c014856faea2fd57f5926b658..ff17ebed5ddda805d8fcf2a0b18486c72ea13765 100644
+--- a/Source/WebCore/ChangeLog
++++ b/Source/WebCore/ChangeLog
+@@ -1,3 +1,22 @@
++2012-09-07  John J. Barton  <johnjbarton@chromium.org>
++
++        Web Inspector: Set focus on the ExtensionPanel's iframe when it is selected
++        https://bugs.webkit.org/show_bug.cgi?id=96148
++
++        Reviewed by NOBODY (OOPS!).
++
++        ExtensionView ctor calls setDefaultFocusedElement with its iframe,
++        ExtensionPanel ctor calls setDefaultFocusedElement with the extensionView
++        and ExtensionPanel's setDefaultFocusedElement calls its grandparent impl
++
++        Tests: Added hasFocus test to extensions/extension-panel.html
++
++        * inspector/front-end/ExtensionPanel.js:
++        (WebInspector.ExtensionPanel):
++        (WebInspector.ExtensionPanel.prototype.defaultFocusedElement):
++        * inspector/front-end/ExtensionView.js:
++        (WebInspector.ExtensionView):
++
+ 2012-09-07  Lianghui Chen  <liachen@rim.com>
+ 
+         [BlackBerry] when one of multiple tabs uses authentication, user can get the auth dialog while the other tab has focus.
+diff --git a/Source/WebCore/inspector/front-end/ExtensionPanel.js b/Source/WebCore/inspector/front-end/ExtensionPanel.js
+index 46cdb117fc0bd5396a208aedac88821b3b488f7c..f96d9e99e9453f70dd9c2c80e74eb341882f9eeb 100644
+--- a/Source/WebCore/inspector/front-end/ExtensionPanel.js
++++ b/Source/WebCore/inspector/front-end/ExtensionPanel.js
+@@ -41,12 +41,13 @@ WebInspector.ExtensionPanel = function(id, pageURL)
+     this._statusBarItems = [];
+     var extensionView = new WebInspector.ExtensionView(id, pageURL, "extension panel");
+     extensionView.show(this.element);
++    this.setDefaultFocusedElement(extensionView.defaultFocusedElement());
+ }
+ 
+ WebInspector.ExtensionPanel.prototype = {
+     defaultFocusedElement: function()
+     {
+-        return this.sidebarTreeElement || this.element;
++        return WebInspector.View.prototype.defaultFocusedElement.call(this);
+     },
+ 
+     get statusBarItems()
+diff --git a/Source/WebCore/inspector/front-end/ExtensionView.js b/Source/WebCore/inspector/front-end/ExtensionView.js
+index d4cd72c4d5cf347df2fb307727c6474961804702..170db0b6bf6f7f6a2732368cb8757a18830e7943 100644
+--- a/Source/WebCore/inspector/front-end/ExtensionView.js
++++ b/Source/WebCore/inspector/front-end/ExtensionView.js
+@@ -45,6 +45,7 @@ WebInspector.ExtensionView = function(id, src, className)
+     this._iframe.addEventListener("load", this._onLoad.bind(this), false);
+     this._iframe.src = src;
+     this._iframe.className = className;
++    this.setDefaultFocusedElement(this._iframe);
+ 
+     this.element.appendChild(this._iframe);
+ }
+diff --git a/LayoutTests/ChangeLog b/LayoutTests/ChangeLog
+index 166b533b94b57bb3b7e6e2b3b52156d5f3d67119..dae5a94284455c5ebca6028509ead065d7efa979 100644
+--- a/LayoutTests/ChangeLog
++++ b/LayoutTests/ChangeLog
+@@ -1,3 +1,15 @@
++2012-09-07  John J. Barton  <johnjbarton@chromium.org>
++
++        Web Inspector: Set focus on the ExtensionPanel's iframe when it is selected
++        https://bugs.webkit.org/show_bug.cgi?id=96148
++
++        Reviewed by NOBODY (OOPS!).
++
++        Add one line to verify that the panel's document has focus after show
++
++        * inspector/extensions/extensions-panel-expected.txt:
++        * inspector/extensions/extensions-panel.html:
++
+ 2012-09-07  Tony Chang  <tony@chromium.org>
+ 
+         [chromium] Chromium Linux EWS bots and CQ bots are flaky
+diff --git a/LayoutTests/inspector/extensions/extensions-panel-expected.txt b/LayoutTests/inspector/extensions/extensions-panel-expected.txt
+index c0ef65db1c4f741efa1ae05bfb2a30701ec6e54c..c475cc20a25293849a1a160b4d71aa043930ead5 100644
+--- a/LayoutTests/inspector/extensions/extensions-panel-expected.txt
++++ b/LayoutTests/inspector/extensions/extensions-panel-expected.txt
+@@ -22,6 +22,7 @@ Panel created
+     show : <function>
+ }
+ Panel shown
++focused: true
+ Extension panel size correct
+ RUNNING TEST: extension_testSearch
+ Panel hidden
+diff --git a/LayoutTests/inspector/extensions/extensions-panel.html b/LayoutTests/inspector/extensions/extensions-panel.html
+index b2240dc8f7b0e6d6a250f6f112b3d9b84805eaca..637bd470a0efe1690fad8d04191ac63936480d15 100644
+--- a/LayoutTests/inspector/extensions/extensions-panel.html
++++ b/LayoutTests/inspector/extensions/extensions-panel.html
+@@ -65,6 +65,7 @@ function extension_testCreatePanel(nextTest)
+             return;
+         }
+         output("Panel shown");
++        output("focused: " + window.document.hasFocus());
+         panel.onShown.removeListener(onPanelShown);
+         evaluateOnFrontend("reply(InspectorTest.getPanelSize())", function(result) {
+             if (result.width !== window.innerWidth)

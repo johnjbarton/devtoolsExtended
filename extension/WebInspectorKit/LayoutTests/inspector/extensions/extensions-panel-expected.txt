@@ -23,6 +23,7 @@ Panel created
     show : <function>
 }
 Panel shown
+focused: true
 Extension panel size correct
 RUNNING TEST: extension_testItemSelector
 ItemSelector has  2 items
