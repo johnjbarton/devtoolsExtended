@@ -200,10 +200,15 @@ function test()
             var script = InspectorTest.createScriptMock("compiled.js", 0, 0, true, "");
             script.sourceMapURL = "http://localhost:8000/inspector/resources/source-map.json_";
             console.error = function() {}; // Error message is platform dependent.
-            debuggerScriptMapping._parsedScriptSource({data:script});
-            var uiLocation = script.rawLocationToUILocation(0, 0);
-            InspectorTest.addResult(uiLocation.uiSourceCode.url);
-            next();
+
+            function addScriptToMapping(mapping) 
+            {
+                mapping.addScript(script);
+                var uiLocation = script.rawLocationToUILocation(0, 0);
+                InspectorTest.addResult(uiLocation.uiSourceCode.url);
+                next();
+            }
+            debuggerScriptMapping._mappingForScript({data:script}, addScriptToMapping);
         }
     ]);
 };
