@@ -74,7 +74,7 @@ WebInspector.DebuggerScriptMapping.prototype = {
             {
                 callback(this._compilerMapping);
             }
-            this._compilerMapping.loadSourceMapForScript(script, didLoadSourceMap);
+            this._compilerMapping.loadSourceMapForScript(script, didLoadSourceMap.bind(this));
         } else {
             callback(this._resourceMapping);
         }
