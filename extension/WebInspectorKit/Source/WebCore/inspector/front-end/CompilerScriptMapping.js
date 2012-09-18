@@ -89,66 +89,68 @@ WebInspector.CompilerScriptMapping.prototype = {
         this._scriptForOriginalUISource.put(originalUISourceCode, script);
         this._workspace.project().addUISourceCode(originalUISourceCode);
 
-        var sourceMap = this.loadSourceMapForScript(script);
+        function addSourceMap(sourceMap) 
+        {
+            if (this._scriptForSourceMap.get(sourceMap)) {
+                this._sourceMapForScriptId[script.scriptId] = sourceMap;
+                script.setSourceMapping(this);
+                return;
+            }
 
-        if (this._scriptForSourceMap.get(sourceMap)) {
+            var uiSourceCodeList = [];
+            var sourceURLs = sourceMap.sources();
+            for (var i = 0; i < sourceURLs.length; ++i) {
+                var sourceURL = sourceURLs[i];
+                if (this._uiSourceCodeByURL[sourceURL])
+                    continue;
+                var sourceContent = sourceMap.sourceContent(sourceURL);
+                var contentProvider;
+                if (sourceContent)
+                    contentProvider = new WebInspector.StaticContentProvider(WebInspector.resourceTypes.Script, sourceContent);
+                else
+                    contentProvider = new WebInspector.CompilerSourceMappingContentProvider(sourceURL);
+                var uiSourceCode = new WebInspector.JavaScriptSource(sourceURL, null, contentProvider, false);
+                uiSourceCode.setSourceMapping(this);
+                uiSourceCode.isContentScript = script.isContentScript;
+                this._uiSourceCodeByURL[sourceURL] = uiSourceCode;
+                this._sourceMapForUISourceCode.put(uiSourceCode, sourceMap);
+                uiSourceCodeList.push(uiSourceCode);
+            }
+
             this._sourceMapForScriptId[script.scriptId] = sourceMap;
+            this._scriptForSourceMap.put(sourceMap, script);
             script.setSourceMapping(this);
-            return;
+
+            for (var i = 0; i < uiSourceCodeList.length; ++i)
+                this._workspace.project().addUISourceCode(uiSourceCodeList[i]);
         }
-
-        var uiSourceCodeList = [];
-        var sourceURLs = sourceMap.sources();
-        for (var i = 0; i < sourceURLs.length; ++i) {
-            var sourceURL = sourceURLs[i];
-            if (this._uiSourceCodeByURL[sourceURL])
-                continue;
-            var sourceContent = sourceMap.sourceContent(sourceURL);
-            var contentProvider;
-            if (sourceContent)
-                contentProvider = new WebInspector.StaticContentProvider(WebInspector.resourceTypes.Script, sourceContent);
-            else
-                contentProvider = new WebInspector.CompilerSourceMappingContentProvider(sourceURL);
-            var uiSourceCode = new WebInspector.JavaScriptSource(sourceURL, null, contentProvider, false);
-            uiSourceCode.setSourceMapping(this);
-            uiSourceCode.isContentScript = script.isContentScript;
-            this._uiSourceCodeByURL[sourceURL] = uiSourceCode;
-            this._sourceMapForUISourceCode.put(uiSourceCode, sourceMap);
-            uiSourceCodeList.push(uiSourceCode);
-        }
-
-        this._sourceMapForScriptId[script.scriptId] = sourceMap;
-        this._scriptForSourceMap.put(sourceMap, script);
-        script.setSourceMapping(this);
-
-        for (var i = 0; i < uiSourceCodeList.length; ++i)
-            this._workspace.project().addUISourceCode(uiSourceCodeList[i]);
+        this.loadSourceMapForScript(script, addSourceMap.bind(this));
     },
 
     /**
      * @param {WebInspector.Script} script
-     * @return {WebInspector.SourceMapParser}
+     * @param {function(WebInspector.SourceMapParser)} callback
      */
-    loadSourceMapForScript: function(script)
+    loadSourceMapForScript: function(script, callback)
     {
         var sourceMapURL = WebInspector.SourceMapParser.prototype._canonicalizeURL(script.sourceMapURL, script.sourceURL);
         var sourceMap = this._sourceMapByURL[sourceMapURL];
-        if (sourceMap)
-            return sourceMap;
-
-        try {
-            // FIXME: make sendRequest async.
-            var response = InspectorFrontendHost.loadResourceSynchronously(sourceMapURL);
-            if (response.slice(0, 3) === ")]}")
-                response = response.substring(response.indexOf('\n'));
-            var payload = /** @type {WebInspector.SourceMapPayload} */ JSON.parse(response);
-            sourceMap = new WebInspector.SourceMapParser(sourceMapURL, payload);
-        } catch(e) {
-            console.error(e.message);
-            return null;
+        if (sourceMap) {
+            callback(sourceMap);
+        } else {
+            try {
+                // FIXME: make sendRequest async.
+                var response = InspectorFrontendHost.loadResourceSynchronously(sourceMapURL);
+                if (response.slice(0, 3) === ")]}")
+                    response = response.substring(response.indexOf('\n'));
+                var payload = /** @type {WebInspector.SourceMapPayload} */ JSON.parse(response);
+                sourceMap = new WebInspector.SourceMapParser(sourceMapURL, payload);
+                this._sourceMapByURL[sourceMapURL] = sourceMap;
+                callback(sourceMap);
+            } catch(e) {
+                console.error(e.message);
+            }
         }
-        this._sourceMapByURL[sourceMapURL] = sourceMap;
-        return sourceMap;
     },
 
     _reset: function()
