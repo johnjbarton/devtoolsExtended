@@ -53,26 +53,30 @@ WebInspector.DebuggerScriptMapping.prototype = {
     _parsedScriptSource: function(event)
     {
         var script = /** @type {WebInspector.Script} */ event.data;
-        var mapping = this._mappingForScript(script);
-        mapping.addScript(script);
+        function addScriptToMapping(mapping) 
+        {
+            mapping.addScript(script);
+        }
+        this._mappingForScript(script, addScriptToMapping);
     },
 
     /**
      * @param {WebInspector.Script} script
-     * @return {WebInspector.SourceMapping}
+     * @param {function(WebInspector.SourceMapping)} callback
      */
-    _mappingForScript: function(script)
+    _mappingForScript: function(script, callback)
     {
         if (WebInspector.experimentsSettings.snippetsSupport.isEnabled()) {
             if (this._snippetMapping && this._snippetMapping.snippetIdForSourceURL(script.sourceURL))
-                return this._snippetMapping;
+                callback(this._snippetMapping);
+        } else if (WebInspector.settings.sourceMapsEnabled.get() && script.sourceMapURL) {
+            function didLoadSourceMap(sourceMap)
+            {
+                callback(this._compilerMapping);
+            }
+            this._compilerMapping.loadSourceMapForScript(script, didLoadSourceMap);
+        } else {
+            callback(this._resourceMapping);
         }
-
-        if (WebInspector.settings.sourceMapsEnabled.get() && script.sourceMapURL) {
-            if (this._compilerMapping.loadSourceMapForScript(script))
-                return this._compilerMapping;
-        }
-
-        return this._resourceMapping;
     }
 }
