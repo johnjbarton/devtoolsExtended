@@ -233,26 +233,28 @@ WebInspector.FilteredItemSelectionDialog.prototype = {
         if (query) {
             this._highlightItems(query);
             this._query = query;
-
-            if (!this._selectedElement || !this._itemElementVisible(this._selectedElement))
-                this._selectShortestMatch();
+            this._selectShortestMatch();
         } else {
             this._clearHighlight();
             delete this._query;
+            this._updateSelection(this._itemElements[0]); // select random element so user can key-navigate
         }
     },
 
     _selectShortestMatch: function() 
     {
-        var shortestMatchElement = this._itemElements[0];
+        var shortestMatchElement;
         this._itemElements.forEach(function(itemElement) 
         {
-            if (itemElement.shortestMatch && itemElement.shortestMatch <= shortestMatchElement.shortestMatch) {  // regex match is as short
-                if (itemElement.textContent.length < shortestMatchElement.textContent.length) { // and it's the shortest item that matches
-                    shortestMatchElement = itemElement;
+            if (this._itemElementVisible(itemElement)) {
+                shortestMatchElement = shortestMatchElement || itemElement;
+                if (itemElement.shortestMatch && itemElement.shortestMatch <= shortestMatchElement.shortestMatch) {  // regex match is as short
+                    if (itemElement.firstChild.textContent.length < shortestMatchElement.firstChild.textContent.length) { // and it's the shortest item that matches
+                        shortestMatchElement = itemElement;
+                    }
                 }
             }
-        });
+        }.bind(this));
         this._updateSelection(shortestMatchElement);
     },
 
