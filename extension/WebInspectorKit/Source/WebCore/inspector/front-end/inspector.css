@@ -1085,6 +1085,10 @@ body.platform-linux .monospace, body.platform-linux .source-code {
     color: rgb(0, 128, 255);
 }
 
+.console-message:hover {
+    background-color: #F0F0F0;
+}
+
 #console-messages a {
     color: rgb(33%, 33%, 33%);
     cursor: pointer;
