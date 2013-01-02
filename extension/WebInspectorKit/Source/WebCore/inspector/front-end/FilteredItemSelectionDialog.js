@@ -220,28 +220,42 @@ WebInspector.FilteredItemSelectionDialog.prototype = {
         query = query.trim();
         var regex = this._createSearchRegExp(query);
 
-        var firstElement;
         for (var i = 0; i < this._itemElements.length; ++i) {
             var itemElement = this._itemElements[i];
             itemElement._titleSuffixElement.textContent = this._delegate.itemSuffixAt(i);
+            delete itemElement.shortestMatch;
             if (regex.test(this._delegate.itemKeyAt(i))) {
                 this._showItemElement(itemElement);
-                if (!firstElement)
-                    firstElement = itemElement;
             } else
                 this._hideItemElement(itemElement);
         }
 
-        if (!this._selectedElement || !this._itemElementVisible(this._selectedElement))
-            this._updateSelection(firstElement);
-
         if (query) {
             this._highlightItems(query);
             this._query = query;
+            this._selectShortestMatch();
         } else {
             this._clearHighlight();
             delete this._query;
+            this._updateSelection(this._itemElements[0]); // select random element so user can key-navigate
         }
+    },
+
+    _selectShortestMatch: function() 
+    {
+        var shortestMatchElement;
+        this._itemElements.forEach(function(itemElement) 
+        {
+            if (this._itemElementVisible(itemElement)) {
+                shortestMatchElement = shortestMatchElement || itemElement;
+                if (itemElement.shortestMatch && itemElement.shortestMatch <= shortestMatchElement.shortestMatch) {  // regex match is as short
+                    if (itemElement.firstChild.textContent.length < shortestMatchElement.firstChild.textContent.length) { // and it's the shortest item that matches
+                        shortestMatchElement = itemElement;
+                    }
+                }
+            }
+        }.bind(this));
+        this._updateSelection(shortestMatchElement);
     },
 
     _onKeyDown: function(event)
@@ -402,6 +416,20 @@ WebInspector.FilteredItemSelectionDialog.prototype = {
 
         if (changes.length)
             this._elementHighlightChanges.put(itemElement, changes);
+
+        this._setShortestMatch(itemElement, ranges);
+    },
+
+    _setShortestMatch: function(itemElement, ranges) 
+    {
+        var shortestMatch = Infinity;
+        ranges.forEach(function (range) 
+        {
+            if (range.length < shortestMatch) 
+                shortestMatch = range.length;
+        });
+
+        itemElement.shortestMatch = shortestMatch;  // cleared in _filterItems()
     },
 
     /**
