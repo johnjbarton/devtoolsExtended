@@ -397,7 +397,8 @@ WebInspector.ExtensionServer.prototype = {
             // returns empty object for compatibility with InjectedScriptManager on the backend.
             injectedScript = "((function(){" + options.injectedScript + "})(),function(){return {}})";
         }
-        PageAgent.reload(!!options.ignoreCache, injectedScript);
+        var preprocessingScript = options.preprocessingScript;
+        PageAgent.reload(!!options.ignoreCache, injectedScript, preprocessingScript);
         return this._status.OK();
     },
 
