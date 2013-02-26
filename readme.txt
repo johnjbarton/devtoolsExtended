@@ -1,3 +1,7 @@
+MOVED to https://github.com/google/devtoolsExtended
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
 DevtoolsExtended
 
 Experimental extension of Chrome Devtools:
